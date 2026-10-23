@@ -1,0 +1,21 @@
+# Память Айзель — это самое ценное. Не коммитим и не теряем.
+data/
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# Редакторы/ОС
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+nul

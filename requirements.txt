@@ -1,0 +1,14 @@
+# Фаза 1-2. Всё тяжёлое уже здесь; ANN-индекс добавим, когда памяти станет много.
+httpx>=0.27,<1.0      # async HTTP + стриминг SSE к KoboldCpp
+PyYAML>=6.0,<7.0      # душа Айзель в aizel/soul/aizel.yaml
+
+# --- Фаза 2: память -------------------------------------------------------
+# ВАЖНО: torch ставим CPU-сборку, она не трогает VRAM, занятый LLM:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# Иначе pip притащит CUDA-wheels и начнёт конкурировать с KoboldCpp за 8 ГБ.
+torch>=2.4            # только CPU!
+sentence-transformers>=3.0   # BAAI/bge-m3, 1024-мерные векторы
+numpy>=1.26
+
+# --- Фаза 4+ (раскомментировать позже) ---
+# usearch>=2.12       # ANN-индекс (на Windows/hnswlib нет готовых wheel под 3.12)
