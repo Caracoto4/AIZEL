@@ -5,9 +5,7 @@ LLM-based inference so casual questions are not silently turned into preferences
 """
 from __future__ import annotations
 
-import json
-import re
-from pathlib import Path
+import jsonfrom pathlib import Path
 
 
 _GREETING_WORDS = ("привет", "здравств", "поздоров", "приветств")
