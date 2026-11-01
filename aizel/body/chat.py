@@ -23,6 +23,7 @@ from ..body.boot import ContextBuilder, Soul
 from ..core.brain import Brain, BrainUnavailable
 from ..core.config import DATA_DIR, AizelConfig
 from ..core.emotions import Emotions
+from ..core.appraisal import appraise_user_message
 from ..core.personality import Personality
 from ..memory.dialoglog import DialogLog
 from ..memory.facade import Memory
@@ -221,15 +222,21 @@ async def run_chat(cfg: AizelConfig) -> None:
             )
             turn_log.append(f"СОБЕСЕДНИК: {user_text}\nАЙЗЕЛЬ: {answer}")
 
-            # Простейший эмоциональный отклик (Фаза 3 заменит на анализ).
-            # Пока: длинный живой ответ поднимает настроение, молчание — роняет.
-            emotions.react(
-                pleasure=0.04 if len(answer) > 40 else 0.0,
-                arousal=0.03,
-                cause="разговор",
-                topic=user_text[:80],
-                sensitivity=personality.touchiness + 0.5,
+            # Эмоциональная оценка опирается на явные сигналы в реплике,
+            # а не на длину сгенерированного ответа.
+            reaction = appraise_user_message(
+                user_text,
+                touchiness=personality.touchiness,
             )
+            if reaction is not None:
+                emotions.react(
+                    pleasure=reaction.pleasure,
+                    arousal=reaction.arousal,
+                    dominance=reaction.dominance,
+                    cause=reaction.cause,
+                    topic=user_text[:80],
+                    sensitivity=reaction.sensitivity,
+                )
 
         # --- засыпаем -------------------------------------------------------
         added = {"core": 0, "facts": 0}

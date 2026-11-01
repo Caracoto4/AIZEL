@@ -20,3 +20,5 @@ jobs:
         run: python -m pip install --upgrade numpy PyYAML
       - name: Run memory regression suite
         run: python tests/test_memory.py
+      - name: Run emotional appraisal tests
+        run: python tests/test_appraisal.py
