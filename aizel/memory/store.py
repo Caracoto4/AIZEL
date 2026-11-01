@@ -90,6 +90,7 @@ class MemoryHit:
     age_days: float
     mood: float = 0.0
     source: str = "episode"
+    session: str = ""
 
 
 def _blob_to_vec(blob: bytes | None, dim: int):
@@ -230,7 +231,7 @@ class MemoryStore:
         считаются за десятки миллисекунд.
         """
         return self.db.execute(
-            """SELECT id, ts, text, vec, dim, importance, mood, topic, recall_count
+            """SELECT id, ts, text, vec, dim, importance, mood, topic, recall_count, session
                FROM episodes WHERE vec IS NOT NULL ORDER BY ts DESC LIMIT ?""",
             (limit,),
         ).fetchall()
