@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 import time
+from datetime import datetime
 from dataclasses import dataclass
 
 import numpy as np
@@ -149,7 +150,9 @@ class Retriever:
                 dedupe_key = ("facts", key)
             else:
                 session_key = hit.session or f"episode:{hit.id}"
-                dedupe_key = (session_key, key)
+                # Точный повтор эпизода не должен занимать несколько мест
+                # только потому, что он повторился в разных запусках.
+                dedupe_key = ("episodes", key)
                 if per_session.get(session_key, 0) >= max(1, self.cfg.max_per_session):
                     continue
             if key and dedupe_key in seen_text:
@@ -172,8 +175,9 @@ class Retriever:
         out = []
         for h in hits:
             when = _human_age(h.age_days)
+            stamp = datetime.fromtimestamp(h.ts).astimezone().strftime("%d.%m.%Y %H:%M")
             tag = "факт" if h.source == "fact" else "было"
-            out.append(f"{when} ({tag}) {h.text}")
+            out.append(f"{stamp} (местное время; {when}; {tag}) {h.text}")
         return out
 
 
