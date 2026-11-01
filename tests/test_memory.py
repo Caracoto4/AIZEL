@@ -426,7 +426,8 @@ def test_extractor_requires_exact_user_evidence():
     )
     facts = asyncio.run(extract_facts(FakeBrain(), dialog))
     assert [fact.text for fact in facts] == [
-        "Пользователь любит шахматы"
+        "Пользователь живёт в Праге",
+        "Пользователь любит шахматы",
     ], [fact.text for fact in facts]
 
 
