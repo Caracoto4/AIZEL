@@ -272,6 +272,35 @@ def test_boot_prompt_distinguishes_empty_memory_and_existing_episodes():
     assert "вчера обсуждали астрономию" in episode_prompt
 
 
+def test_identity_prompt_separates_aizel_and_interlocutor():
+    builder = ContextBuilder(Soul(name="Айзель"), Personality(), Emotions())
+    prompt = builder.system_prompt()
+    assert "«Айзель» — ТВОЁ имя" in prompt
+    assert "не имя собеседника" in prompt
+    assert "не называешь его своим именем" in prompt
+
+
+def test_greeting_does_not_forge_a_user_message():
+    builder = ContextBuilder(Soul(), Personality(), Emotions())
+    messages = builder.build_greeting_messages([])
+    assert len(messages) == 1
+    assert messages[0]["role"] == "system"
+    assert "СЕЙЧАС ТЫ ПРОСНУЛАСЬ" in messages[0]["content"]
+    assert "*(только что проснулась после долгого сна)*" not in messages[0]["content"]
+
+
+def test_chat_messages_end_with_current_user_turn():
+    builder = ContextBuilder(Soul(), Personality(), Emotions())
+    history = [
+        {"role": "user", "content": "Привет"},
+        {"role": "assistant", "content": "Привет!"},
+    ]
+    messages = builder.build_messages(history, "Расскажи про звёзды")
+    assert messages[-1] == {"role": "user", "content": "Расскажи про звёзды"}
+    assert messages[-2] == {"role": "assistant", "content": "Привет!"}
+    assert "отвечай прежде всего на последнюю реплику пользователя" in messages[0]["content"]
+
+
 def test_retrieval_deduplicates_and_limits_each_session():
     with _Tmp() as tmp:
         store = MemoryStore(_tmp_db(tmp))
