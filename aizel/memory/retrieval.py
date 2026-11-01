@@ -46,6 +46,8 @@ class RetrievalSettings:
     # 0.50–0.65, откровенный шум — 0.1–0.4. Выше 0.50 поднимать нельзя: туда
     # попадают и настоящие, но формулированно далёкие совпадения.
     min_similarity: float = 0.42
+    # Не даём одному сеансу занять весь контекст похожими эпизодами.
+    max_per_session: int = 2
 
 
 class Retriever:
@@ -101,6 +103,7 @@ class Retriever:
                     age_days=age_days,
                     mood=float(row["mood"]),
                     source="episode",
+                    session=str(row["session"] or ""),
                 )
             )
 
@@ -128,7 +131,30 @@ class Retriever:
             )
 
         hits.sort(key=lambda h: h.score, reverse=True)
-        return [h for h in hits[:top_k] if h.score >= self.cfg.min_score]
+        # Сначала фильтруем по качеству, затем разнообразим выдачу. Иначе
+        # несколько почти одинаковых эпизодов из одной беседы вытесняют
+        # остальные воспоминания из короткого system-контекста.
+        selected: list[MemoryHit] = []
+        seen_text: set[str] = set()
+        per_session: dict[str, int] = {}
+        for hit in hits:
+            if hit.score < self.cfg.min_score:
+                continue
+            key = _normalize_memory_text(hit.text)
+            if key and key in seen_text:
+                continue
+            # Пустая session встречается у старых/ручных записей: не считаем
+            # все такие записи одним огромным сеансом.
+            session_key = hit.session or f"{hit.source}:{hit.id}"
+            if per_session.get(session_key, 0) >= max(1, self.cfg.max_per_session):
+                continue
+            if key:
+                seen_text.add(key)
+            per_session[session_key] = per_session.get(session_key, 0) + 1
+            selected.append(hit)
+            if len(selected) >= top_k:
+                break
+        return selected
 
     def format_for_context(self, hits: list[MemoryHit]) -> list[str]:
         """Превращает находки в строки контекста с человеческими метками времени.
@@ -142,6 +168,15 @@ class Retriever:
             tag = "факт" if h.source == "fact" else "было"
             out.append(f"{when} ({tag}) {h.text}")
         return out
+
+
+def _normalize_memory_text(text: str) -> str:
+    """Сводит различия регистра, пробелов и пунктуации к одному ключу."""
+    import re
+    import unicodedata
+
+    normalized = unicodedata.normalize("NFKC", text).casefold()
+    return " ".join(re.findall(r"\\w+", normalized, flags=re.UNICODE))
 
 
 def _row_vec(row) -> np.ndarray:
