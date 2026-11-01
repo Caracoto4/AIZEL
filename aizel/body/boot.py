@@ -18,6 +18,7 @@ import yaml
 from ..core.emotions import Emotions
 from ..core.personality import Personality
 from ..core.drives import DriveState
+from ..core.preferences import ConversationPreferences
 
 
 @dataclass
@@ -63,11 +64,12 @@ class Soul:
 class ContextBuilder:
     """Собирает system-промпт и список сообщений для Brain."""
 
-    def __init__(self, soul: Soul, personality: Personality, emotions: Emotions, drives: DriveState | None = None):
+    def __init__(self, soul: Soul, personality: Personality, emotions: Emotions, drives: DriveState | None = None, preferences: ConversationPreferences | None = None):
         self.soul = soul
         self.personality = personality
         self.emotions = emotions
         self.drives = drives or DriveState()
+        self.preferences = preferences or ConversationPreferences()
         # Сюда Фаза 2 подложит извлечённые воспоминания.
         self.memories: list[str] = []
         # Сюда Фаза 2 подложит ядро памяти (устойчивые факты о пользователе).
@@ -132,6 +134,9 @@ class ContextBuilder:
 
         # 4. Побуждения: мягкий приоритет следующего действия.
         blocks.append(self.drives.directive(self.personality))
+        preference_directive = self.preferences.directive()
+        if preference_directive:
+            blocks.append(preference_directive)
 
         # 5. Ядро памяти о пользователе.
         about = [f for f in (s.about_you or {}).get("facts", []) if f]
