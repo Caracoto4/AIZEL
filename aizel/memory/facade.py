@@ -45,7 +45,7 @@ CORE_SLOTS = CORE_SINGLETON_SLOTS | CORE_MULTI_SLOTS
 def _memory_key(text: str) -> str:
     """Нормализованный ключ для дедупликации фактов и сведений ядра."""
     normalized = unicodedata.normalize("NFKC", text).casefold()
-    return " ".join(re.findall(r"\\w+", normalized, flags=re.UNICODE))
+    return " ".join(re.findall(r"\w+", normalized, flags=re.UNICODE))
 
 
 class Memory:
