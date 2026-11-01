@@ -7,8 +7,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import time
+from types import SimpleNamespace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -17,7 +19,8 @@ from aizel.core.embeddings import Embedder
 from aizel.memory.facade import Memory, _guess_importance
 from aizel.memory.retrieval import Retriever, RetrievalSettings, _human_age
 from aizel.memory.store import MemoryStore
-from aizel.memory.semantic import ExtractedFact, EXTRACT_SYSTEM, quick_core
+from aizel.memory.semantic import ExtractedFact, EXTRACT_SYSTEM, quick_core, extract_facts
+from aizel.memory.dialoglog import DialogLog
 from aizel.body.boot import ContextBuilder, Soul
 from aizel.core.personality import Personality
 from aizel.core.emotions import Emotions
@@ -405,6 +408,79 @@ def test_extractor_prompt_uses_only_interlocutor_statements():
     assert "ТОЛЬКО из реплик СОБЕСЕДНИКА" in EXTRACT_SYSTEM
     assert "утверждения Айзель о собеседнике" in EXTRACT_SYSTEM
 
+
+
+
+def test_extractor_requires_exact_user_evidence():
+    class FakeBrain:
+        async def chat(self, *args, **kwargs):
+            return SimpleNamespace(text='''[
+                {"text":"Пользователь живёт в Праге","importance":0.8,"slot":"город","evidence":"я живу в Праге"},
+                {"text":"Пользователь работает врачом","importance":0.8,"slot":"работа","evidence":"Айзель сказала, что ты врач"},
+                {"text":"Пользователь любит шахматы","importance":0.7,"slot":"","evidence":"иногда играю в шахматы"}
+            ]''')
+
+    dialog = (
+        "СОБЕСЕДНИК: я живу в Праге, а иногда играю в шахматы\n"
+        "АЙЗЕЛЬ: Ты работаешь врачом, верно?"
+    )
+    facts = asyncio.run(extract_facts(FakeBrain(), dialog))
+    assert [fact.text for fact in facts] == [
+        "Пользователь живёт в Праге",
+        "Пользователь любит шахматы",
+    ], [fact.text for fact in facts]
+
+
+def test_extractor_rejects_missing_or_single_word_evidence():
+    class FakeBrain:
+        async def chat(self, *args, **kwargs):
+            return SimpleNamespace(text='''[
+                {"text":"Пользователь любит котов","importance":0.8,"slot":"","evidence":""},
+                {"text":"Пользователь живёт в Париже","importance":0.8,"slot":"город","evidence":"Париже"}
+            ]''')
+
+    facts = asyncio.run(extract_facts(
+        FakeBrain(), "СОБЕСЕДНИК: я сегодня гулял\nАЙЗЕЛЬ: Поняла."
+    ))
+    assert facts == []
+
+
+def test_extractor_accepts_only_a_contiguous_quote_from_user_turn():
+    class FakeBrain:
+        async def chat(self, *args, **kwargs):
+            return SimpleNamespace(text='''[
+                {"text":"Пользователь увлекается астрономией","importance":0.8,"slot":"","evidence":"я давно увлекаюсь астрономией"}
+            ]''')
+
+    facts = asyncio.run(extract_facts(
+        FakeBrain(),
+        "СОБЕСЕДНИК: привет, я давно увлекаюсь астрономией и фотографией\n"
+        "АЙЗЕЛЬ: Звучит интересно!"
+    ))
+    assert len(facts) == 1
+    assert facts[0].evidence == "я давно увлекаюсь астрономией"
+
+
+def test_dialoglog_preserves_all_unclosed_turns_until_session_end():
+    with _Tmp() as tmp:
+        journal = DialogLog(tmp / "dialoglog")
+        journal.write("user", "старый факт")
+        journal.write("assistant", "ответ")
+        journal.session_end()
+        journal.write("user", "новый факт")
+        journal.write("assistant", "ответ")
+        for index in range(10):
+            journal.write("user", f"дополнительная реплика {index}")
+        pending = journal.resumable_all()
+        assert len(pending) == 12
+        assert [row["text"] for row in pending[:2]] == ["новый факт", "ответ"]
+        journal.session_end()
+        assert journal.resumable_all() == []
+
+
+def test_extract_prompt_requires_verbatim_evidence():
+    assert "точную дословную цитату" in EXTRACT_SYSTEM
+    assert '"evidence": "..."' in EXTRACT_SYSTEM
 
 if __name__ == "__main__":
     failed = 0

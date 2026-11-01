@@ -39,7 +39,7 @@ CMD_DUMP = ("/state",)
 CMD_MEM = ("/mem", "/memory")
 CMD_FORGET = ("/forget",)
 
-# Сколько последних реплик уходит на смысловое извлечение при выходе.
+# Размер одного запроса извлечения: 7 обменов (или меньше).
 EXTRACT_WINDOW = 14
 
 
@@ -98,7 +98,14 @@ async def run_chat(cfg: AizelConfig) -> None:
         journal.write("assistant", greeting, kind="greeting")
         print(f"\n  {soul.name}: {greeting}\n")
 
-        turn_log: list[str] = []  # реплики для смыслового прогона на выходе
+        # Восстанавливаем ВСЮ незавершённую очередь из append-only журнала.
+        # История для генерации ограничена 12 репликами, но усвоение не должно
+        # терять более ранние реплики после аварийного завершения.
+        pending = journal.resumable_all()
+        turn_log: list[str] = [
+            f"{'СОБЕСЕДНИК' if row['role'] == 'user' else 'АЙЗЕЛЬ'}: {row['text']}"
+            for row in pending
+        ]
 
         def refresh_core() -> None:
             """Догружает ядро в контекст — сразу, чтобы имя стало известно этому же ответу."""
@@ -142,6 +149,11 @@ async def run_chat(cfg: AizelConfig) -> None:
 
             if user_text.lower() in CMD_FORGET:
                 backup = memory.forget_all(DIALOG_DIR)
+                # Не даём текущей истории и очереди усвоения восстановить
+                # только что удалённые сведения при следующем ответе или /exit.
+                history.clear()
+                turn_log.clear()
+                journal.session_end()
                 ctx.core_memory = []
                 ctx.memories = []
                 print(f"\n  стёрла всё. копия на всякий случай: {backup}")
@@ -209,15 +221,28 @@ async def run_chat(cfg: AizelConfig) -> None:
             )
 
         # --- засыпаем -------------------------------------------------------
-        journal.session_end()
         added = {"core": 0, "facts": 0}
+        ingestion_ok = True
         if turn_log and cfg.memory.extract_on_exit:
             print("  записывает, что узнала о тебе...", flush=True)
-            try:
-                facts = await extract_facts(brain, "\n\n".join(turn_log[-EXTRACT_WINDOW:]))
-                added = memory.apply_facts(facts)
-            except BrainUnavailable as exc:
-                print(f"  [!] не удалось извлечь ({exc}) — реплики целы в журнале")
+            # Обрабатываем ВЕСЬ диалог порциями, а не только последние 7 обменов.
+            # После каждой порции факты сразу сохраняются; при сбое весь
+            # незакрытый журнал остаётся доступен для безопасного повтора.
+            for offset in range(0, len(turn_log), EXTRACT_WINDOW):
+                chunk = turn_log[offset:offset + EXTRACT_WINDOW]
+                try:
+                    facts = await extract_facts(brain, "\n\n".join(chunk))
+                    counts = memory.apply_facts(facts)
+                    added["core"] += counts["core"]
+                    added["facts"] += counts["facts"]
+                except BrainUnavailable as exc:
+                    ingestion_ok = False
+                    print(f"  [!] не удалось извлечь ({exc}) — незавершённый диалог сохранён")
+                    break
+        # Закрываем журнал только после успешного усвоения. Если извлечение
+        # выключено настройкой, оставляем поведение штатного завершения.
+        if ingestion_ok or not cfg.memory.extract_on_exit:
+            journal.session_end()
         print(
             f"  {soul.name} засыпает. в ядре: {added['core']}, "
             f"новых фактов: {added['facts']}, состояние сохранено.\n"

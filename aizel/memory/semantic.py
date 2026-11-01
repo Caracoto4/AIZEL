@@ -28,9 +28,14 @@ EXTRACT_SYSTEM = """Ты ведёшь заметки о собеседнике, 
 Выписывай только УСТОЙЧИВОЕ: имя, близких, привычки, интересы и важные события.
 Не выписывай светскую болтовню, приветствия и свои догадки.
 
+Для КАЖДОГО факта обязательно укажи evidence — точную дословную цитату
+из реплики СОБЕСЕДНИКА, которая прямо подтверждает этот факт. Не цитируй
+Айзель. Если точной подтверждающей цитаты нет — факт не добавляй.
+
 Ответь СТРОГО JSON-массивом объектов вида
-  {"text": "...", "importance": 0.0-1.0, "slot": "..."}
-text — короткое утверждение в третьем лице, одна мысль.
+  {"text": "...", "importance": 0.0-1.0, "slot": "...", "evidence": "..."}
+text — короткое утверждение в третьем лице, одна мысль; не делай выводов шире цитаты.
+evidence — точный фрагмент реплики СОБЕСЕДНИКА, без исправлений и пересказа.
 importance — 0.2 бытовая мелочь, 0.5 обычное, 0.8 значимое, 1.0 критичное
 (имя, близкие, здоровье, травма).
 slot — короткое имя поля для сведений, которые нужно знать всегда:
@@ -61,6 +66,8 @@ class ExtractedFact:
     importance: float = 0.5
     # Не пустой slot = «знать всегда», а не «искать по запросу». См. facade.apply_facts.
     slot: str = ""
+    # Дословное подтверждение из реплики собеседника; пустое у быстрых regex-фактов.
+    evidence: str = ""
 
 
 # Одиночные сведения вытаскиваем регулярками, без обращения к модели.
@@ -151,13 +158,29 @@ def quick_core(text: str) -> list[ExtractedFact]:
     return found
 
 
-async def extract_facts(brain, dialog_text: str) -> list[ExtractedFact]:
-    """Вытаскивает из фрагмента диалога устойчивые сведения.
+def _tokens(text: str) -> list[str]:
+    """Нормализованные слова для проверки дословной цитаты."""
+    import unicodedata
 
-    Один прогон вместо двух: раньше важность считалась вторым вызовом, и это
-    была лишняя минута ожидания при выходе за сомнительную точность. Модель
-    возвращает importance сразу вместе с текстом.
-    """
+    normalized = unicodedata.normalize("NFKC", text).casefold()
+    return re.findall(r"\w+", normalized, flags=re.UNICODE)
+
+
+def _evidence_is_grounded(evidence: str, dialog_text: str) -> bool:
+    """Цитата должна быть непрерывным фрагментом одной реплики собеседника."""
+    quoted = _tokens(evidence)
+    if len(quoted) < 2:
+        return False
+    for statement in re.findall(r"^СОБЕСЕДНИК:\s*(.*)$", dialog_text, flags=re.M):
+        words = _tokens(statement)
+        width = len(quoted)
+        if any(words[i:i + width] == quoted for i in range(len(words) - width + 1)):
+            return True
+    return False
+
+
+async def extract_facts(brain, dialog_text: str) -> list[ExtractedFact]:
+    """Извлекает только факты с дословно подтверждённой цитатой собеседника."""
     if not dialog_text.strip():
         return []
 
@@ -172,19 +195,21 @@ async def extract_facts(brain, dialog_text: str) -> list[ExtractedFact]:
     items = _parse_json_array(result.text)
     out: list[ExtractedFact] = []
     for item in items:
-        if isinstance(item, str):
-            text, importance, slot = item.strip(), 0.5, ""
-        elif isinstance(item, dict):
-            text = str(item.get("text", "")).strip()
-            try:
-                importance = max(0.0, min(1.0, float(item.get("importance", 0.5))))
-            except (TypeError, ValueError):
-                importance = 0.5
-            slot = str(item.get("slot") or "").strip().lower()
-        else:
+        if not isinstance(item, dict):
             continue
-        if text:
-            out.append(ExtractedFact(text=text, importance=importance, slot=slot))
+        text = str(item.get("text", "")).strip()
+        evidence = str(item.get("evidence", "")).strip()
+        if not text or len(text) > 220 or not _evidence_is_grounded(evidence, dialog_text):
+            log.warning("отброшен неподтверждённый факт: %s", text[:80])
+            continue
+        try:
+            importance = max(0.0, min(1.0, float(item.get("importance", 0.5))))
+        except (TypeError, ValueError):
+            importance = 0.5
+        slot = str(item.get("slot") or "").strip().lower()
+        out.append(ExtractedFact(
+            text=text, importance=importance, slot=slot, evidence=evidence
+        ))
     log.info("извлечено %d фактов (слотовых: %d)",
              len(out), sum(1 for f in out if f.slot))
     return out

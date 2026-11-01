@@ -43,33 +43,35 @@ class DialogLog:
         """Штатный выход. По этой метке видно, что процесс не падал."""
         self.write("meta", "", kind="session_end")
 
-    def resumable_tail(self, limit: int = 12) -> list[dict]:
-        """Реплики для подхвата истории — и только если прошлый запуск упал.
+    def resumable_all(self) -> list[dict]:
+        """Весь незакрытый диалог: нужен для повторного извлечения после сбоя.
 
-        Иначе вчерашний разговор лез бы в каждый новый как «недавняя история»,
-        и она приписывала бы себе слова из отладочных прогонов.
+        До session_end записи считаются ожидающими усвоения. После успешного
+        извлечения chat.py ставит session_end; при ошибке ничего не теряется.
         """
         path = self._today()
         if not path.exists():
             return []
         records = []
-        for line in path.read_text(encoding="utf-8").strip().splitlines():
+        for line in path.read_text(encoding="utf-8").splitlines():
             try:
                 records.append(json.loads(line))
             except json.JSONDecodeError:
                 continue
         if not records:
             return []
-        # Считаем от последнего штатного выхода: всё до него уже «пережито».
         for i in range(len(records) - 1, -1, -1):
             if records[i].get("kind") == "session_end":
                 records = records[i + 1 :]
                 break
         return [
-            r
-            for r in records[-limit:]
+            r for r in records
             if r.get("role") in ("user", "assistant") and not r.get("kind")
         ]
+
+    def resumable_tail(self, limit: int = 12) -> list[dict]:
+        """Последние реплики незакрытого диалога для рабочего контекста."""
+        return self.resumable_all()[-limit:]
 
     def tail(self, limit: int = 10) -> list[dict]:
         """Последние записи за сегодня, включая служебные."""
