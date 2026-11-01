@@ -12,6 +12,7 @@ import logging
 import re
 import shutil
 import sqlite3
+import unicodedata
 import uuid
 from pathlib import Path
 
@@ -33,6 +34,18 @@ DEFAULT_MODELS_DIR = ROOT / "data" / "models"
 # (совпадение основ слов → редкие размерности, скалярное произведение мелкое).
 # Порог 0.42 из RetrievalSettings под семантику их бы отбраковывал все.
 LEXICAL_MIN_SIMILARITY = 0.12
+
+# Только эти поля разрешено помещать в постоянное ядро из ответа модели.
+# Одиночные значения заменяют прежнее; семейные сведения могут накапливаться.
+CORE_SINGLETON_SLOTS = frozenset({"имя", "город", "возраст", "работа"})
+CORE_MULTI_SLOTS = frozenset({"семья"})
+CORE_SLOTS = CORE_SINGLETON_SLOTS | CORE_MULTI_SLOTS
+
+
+def _memory_key(text: str) -> str:
+    """Нормализованный ключ для дедупликации фактов и сведений ядра."""
+    normalized = unicodedata.normalize("NFKC", text).casefold()
+    return " ".join(re.findall(r"\\w+", normalized, flags=re.UNICODE))
 
 
 class Memory:
@@ -138,24 +151,44 @@ class Memory:
 
     def remember_fact(self, text: str, importance: float = 0.6) -> int:
         clean = prepare(text)
-        if not clean:
+        key = _memory_key(clean)
+        if not clean or not key:
+            return 0
+        known = {
+            _memory_key(row["text"])
+            for row in self.store.db.execute(
+                "SELECT text FROM facts WHERE superseded=0"
+            )
+        }
+        if key in known:
             return 0
         vec = self._encode_docs([clean])[0]
         return self.store.add_fact(clean, vec, importance=importance)
 
     def remember_facts(self, pairs: list[tuple[str, float]]) -> int:
+        """Добавляет только новые факты; дубли внутри пачки тоже отбрасываются."""
         if not pairs:
             return 0
-        fresh = [(prepare(t), imp) for t, imp in pairs]
-        fresh = [(t, imp) for t, imp in fresh if t]
+        known = {
+            _memory_key(row["text"])
+            for row in self.store.db.execute(
+                "SELECT text FROM facts WHERE superseded=0"
+            )
+        }
+        fresh: list[tuple[str, float]] = []
+        for raw_text, importance in pairs:
+            clean = prepare(raw_text)
+            key = _memory_key(clean)
+            if not clean or not key or key in known:
+                continue
+            known.add(key)
+            fresh.append((clean, importance))
         if not fresh:
             return 0
-        vecs = self._encode_docs([t for t, _ in fresh])
-        added = 0
+        vecs = self._encode_docs([text for text, _ in fresh])
         for (text, importance), vec in zip(fresh, vecs):
             self.store.add_fact(text, vec, importance=importance)
-            added += 1
-        return added
+        return len(fresh)
 
     def quick_core(self, user_text: str) -> list[str]:
         """Мгновенно вылавливает имя/город/возраст/работу — без обращения к модели.
@@ -189,22 +222,41 @@ class Memory:
         сведения (slot) кладутся в ядро и попадают в контекст ВСЕГДА, а всё
         прочее — в векторный поиск, где они сильны.
         """
-        slotted = [f for f in facts if f.slot]
-        searchable = [f for f in facts if not f.slot]
+        core_count = 0
+        searchable: list[tuple[str, float]] = []
+        seen_core: set[tuple[str, str]] = set()
 
-        for f in slotted:
-            self.store.upsert_core(f.slot, f.text)
+        existing_multi = {
+            (slot, _memory_key(text))
+            for slot in CORE_MULTI_SLOTS
+            for text in self.store.get_core(slot)
+        }
+        for fact in facts:
+            clean = prepare(fact.text)
+            if not clean:
+                continue
+            slot = (fact.slot or "").strip().casefold()
+            if slot not in CORE_SLOTS:
+                # Неизвестный slot не должен создавать произвольное поле ядра.
+                # Сам текст при этом не теряем: он остаётся обычным фактом.
+                searchable.append((clean, fact.importance))
+                continue
 
-        added = 0
-        if searchable:
-            known = {
-                r["text"].strip().lower()
-                for r in self.store.db.execute("SELECT text FROM facts WHERE superseded=0")
-            }
-            fresh = [f for f in searchable if f.text.lower() not in known]
-            if fresh:
-                added = self.remember_facts([(f.text, f.importance) for f in fresh])
-        return {"core": len(slotted), "facts": added}
+            key = _memory_key(clean)
+            pair = (slot, key)
+            if not key or pair in seen_core:
+                continue
+            seen_core.add(pair)
+
+            singleton = slot in CORE_SINGLETON_SLOTS
+            if not singleton and pair in existing_multi:
+                continue
+            self.store.upsert_core(slot, clean, singleton=singleton)
+            existing_multi.add(pair)
+            core_count += 1
+
+        added = self.remember_facts(searchable)
+        return {"core": core_count, "facts": added}
 
     # --------------------------------------------------------------- извлечение
 
