@@ -193,8 +193,11 @@ def test_retrieval_respects_importance():
     with _Tmp() as tmp:
         store = MemoryStore(_tmp_db(tmp))
         text = "разговор про погоду"
-        store.add_episode(text, Embedder.lexical_fallback(text), importance=0.2)
-        store.add_episode(text, Embedder.lexical_fallback(text), importance=0.95)
+        vec = Embedder.lexical_fallback(text)
+        # Разные эпизоды с одинаковым вектором: точные текстовые дубли
+        # теперь намеренно подавляются на этапе отбора.
+        store.add_episode(text + " — мелочь", vec, importance=0.2)
+        store.add_episode(text + " — важное событие", vec, importance=0.95)
         r = Retriever(store, RetrievalSettings(min_similarity=0.0, min_score=0.0))
         hits = r.search(Embedder.lexical_fallback("погода"))
         assert len(hits) == 2
