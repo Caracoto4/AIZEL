@@ -196,7 +196,7 @@ async def run_chat(cfg: AizelConfig) -> None:
             memory.remember_turn(
                 user_text, answer, mood=mood_p, topic=user_text[:60]
             )
-            turn_log.append(f"Он: {user_text}\nОна: {answer}")
+            turn_log.append(f"СОБЕСЕДНИК: {user_text}\nАЙЗЕЛЬ: {answer}")
 
             # Простейший эмоциональный отклик (Фаза 3 заменит на анализ).
             # Пока: длинный живой ответ поднимает настроение, молчание — роняет.
