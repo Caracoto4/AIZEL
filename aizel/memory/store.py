@@ -137,10 +137,12 @@ class MemoryStore:
 
     # ---------------------------------------------------------------- записи
 
-    def add_message(self, role: str, text: str, session: str = "") -> int:
+    def add_message(
+        self, role: str, text: str, session: str = "", *, ts: float | None = None
+    ) -> int:
         cur = self.db.execute(
             "INSERT INTO messages(ts, role, text, session) VALUES(?,?,?,?)",
-            (time.time(), role, text, session),
+            (time.time() if ts is None else float(ts), role, text, session),
         )
         self.db.commit()
         return int(cur.lastrowid)
@@ -154,13 +156,14 @@ class MemoryStore:
         mood: float = 0.0,
         topic: str = "",
         session: str = "",
+        ts: float | None = None,
     ) -> int:
         blob = bytes(vec.astype("float32").tobytes()) if vec is not None else None
         dim = int(vec.shape[0]) if vec is not None else 0
         cur = self.db.execute(
             """INSERT INTO episodes(ts, text, vec, dim, importance, mood, topic, session)
                VALUES(?,?,?,?,?,?,?,?)""",
-            (time.time(), text, blob, dim, importance, mood, topic, session),
+            (time.time() if ts is None else float(ts), text, blob, dim, importance, mood, topic, session),
         )
         self.db.commit()
         return int(cur.lastrowid)
@@ -234,6 +237,32 @@ class MemoryStore:
             """SELECT id, ts, text, vec, dim, importance, mood, topic, recall_count, session
                FROM episodes WHERE vec IS NOT NULL ORDER BY ts DESC LIMIT ?""",
             (limit,),
+        ).fetchall()
+
+    def latest_session_episodes(
+        self, *, exclude_session: str = "", limit: int = 12
+    ) -> list[sqlite3.Row]:
+        """Эпизоды последней завершённой/предыдущей беседы в хронологическом порядке.
+
+        Группировка использует session, а не календарный день: одна беседа
+        может пересекать полночь, а в один день может быть несколько запусков.
+        """
+        row = self.db.execute(
+            """SELECT session, MAX(ts) AS last_ts, MAX(id) AS last_id
+               FROM episodes
+               WHERE session != '' AND session != ?
+               GROUP BY session
+               ORDER BY last_ts DESC, last_id DESC
+               LIMIT 1""",
+            (exclude_session,),
+        ).fetchone()
+        if row is None:
+            return []
+        return self.db.execute(
+            """SELECT id, ts, text, importance, mood, session
+               FROM episodes WHERE session=?
+               ORDER BY ts ASC, id ASC LIMIT ?""",
+            (row["session"], limit),
         ).fetchall()
 
     def all_facts(self, limit: int = 5000):

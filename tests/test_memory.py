@@ -89,6 +89,76 @@ def test_messages_and_stats():
         store.close()
 
 
+# ------------------------------------------------------ autobiographical time
+
+
+def test_episode_preserves_original_message_timestamp():
+    with _Tmp() as tmp:
+        store = MemoryStore(_tmp_db(tmp))
+        stamp = 1_780_000_123.5
+        text = "обсуждали важный проект"
+        store.add_episode(text, Embedder.lexical_fallback(text), ts=stamp)
+        row = store.all_episodes()[0]
+        assert row["ts"] == stamp
+        store.close()
+
+
+def test_latest_session_episodes_are_chronological_and_exclude_current():
+    with _Tmp() as tmp:
+        store = MemoryStore(_tmp_db(tmp))
+        vec = Embedder.lexical_fallback("обсуждали проект")
+        now = time.time()
+        store.add_episode("старый сеанс", vec, ts=now - 300, session="older")
+        store.add_episode("первая реплика прошлого сеанса", vec, ts=now - 200, session="previous")
+        store.add_episode("вторая реплика прошлого сеанса", vec, ts=now - 100, session="previous")
+        store.add_episode("текущий сеанс", vec, ts=now, session="current")
+        rows = store.latest_session_episodes(exclude_session="current", limit=8)
+        assert [row["text"] for row in rows] == [
+            "первая реплика прошлого сеанса",
+            "вторая реплика прошлого сеанса",
+        ]
+        store.close()
+
+
+def test_previous_session_context_includes_local_date_and_time():
+    with _Tmp() as tmp:
+        mem = Memory(tmp, force_lexical=True)
+        text = "мы выбрали имя Айзель"
+        mem.store.add_episode(
+            text,
+            Embedder.lexical_fallback(text),
+            ts=time.time() - 3600,
+            session="previous-session",
+        )
+        lines = mem.previous_session_lines()
+        assert len(lines) == 1
+        assert "местное время" in lines[0]
+        assert text in lines[0]
+        mem.close()
+
+
+def test_temporal_query_detection():
+    assert Memory.is_temporal_query("А на чём мы остановились в прошлый раз?")
+    assert Memory.is_temporal_query("О чём мы говорили в прошлой беседе?")
+    assert not Memory.is_temporal_query("Что ты думаешь об астрономии?")
+
+
+def test_exact_duplicate_episodes_are_suppressed_across_sessions():
+    with _Tmp() as tmp:
+        store = MemoryStore(_tmp_db(tmp))
+        text = "мы обсуждали один и тот же проект"
+        vec = Embedder.lexical_fallback(text)
+        store.add_episode(text, vec, importance=0.9, session="session-a")
+        store.add_episode(text + "!!!", vec, importance=0.8, session="session-b")
+        retriever = Retriever(
+            store,
+            RetrievalSettings(min_similarity=0.0, min_score=0.0, top_k=10),
+        )
+        hits = retriever.search(vec, top_k=10)
+        assert sum(hit.source == "episode" for hit in hits) == 1
+        store.close()
+
+
 # ------------------------------------------------------------------ retrieval
 
 
@@ -123,8 +193,11 @@ def test_retrieval_respects_importance():
     with _Tmp() as tmp:
         store = MemoryStore(_tmp_db(tmp))
         text = "разговор про погоду"
-        store.add_episode(text, Embedder.lexical_fallback(text), importance=0.2)
-        store.add_episode(text, Embedder.lexical_fallback(text), importance=0.95)
+        vec = Embedder.lexical_fallback(text)
+        # Разные эпизоды с одинаковым вектором: точные текстовые дубли
+        # теперь намеренно подавляются на этапе отбора.
+        store.add_episode(text + " — мелочь", vec, importance=0.2)
+        store.add_episode(text + " — важное событие", vec, importance=0.95)
         r = Retriever(store, RetrievalSettings(min_similarity=0.0, min_score=0.0))
         hits = r.search(Embedder.lexical_fallback("погода"))
         assert len(hits) == 2
