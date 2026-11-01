@@ -272,7 +272,7 @@ def test_retrieval_deduplicates_and_limits_each_session():
         vec = Embedder.lexical_fallback(query)
         # Точный дубль с другой пунктуацией удаляется после нормализации.
         store.add_episode(query, vec, importance=0.9, session="session-a")
-        store.add_episode(query + "!!!", vec, importance=0.8, session="session-b")
+        store.add_episode(query + "!!!", vec, importance=0.8, session="session-a")
         # Один сеанс не может занять больше двух мест в контексте.
         for suffix in ("первый вариант", "второй вариант", "третий вариант"):
             store.add_episode(
