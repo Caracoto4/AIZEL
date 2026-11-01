@@ -301,6 +301,28 @@ def test_retrieval_deduplicates_and_limits_each_session():
         store.close()
 
 
+def test_permanent_facts_are_not_limited_by_episode_session_cap():
+    with _Tmp() as tmp:
+        store = MemoryStore(_tmp_db(tmp))
+        query = "интересы и привычки пользователя"
+        vec = Embedder.lexical_fallback(query)
+        for text in (
+            "интерес к астрономии",
+            "интерес к программированию",
+            "привычка читать вечером",
+            "предпочтение спокойной музыки",
+        ):
+            store.add_fact(text, vec, importance=0.8)
+        retriever = Retriever(
+            store,
+            RetrievalSettings(min_similarity=0.0, min_score=0.0, top_k=6),
+        )
+        hits = retriever.search(vec, top_k=6)
+        assert len(hits) == 4, [hit.text for hit in hits]
+        assert all(hit.source == "fact" for hit in hits)
+        store.close()
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in sorted(globals().items()):
