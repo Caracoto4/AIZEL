@@ -135,21 +135,23 @@ class Retriever:
         # несколько почти одинаковых эпизодов из одной беседы вытесняют
         # остальные воспоминания из короткого system-контекста.
         selected: list[MemoryHit] = []
-        seen_text: set[str] = set()
+        seen_text: set[tuple[str, str]] = set()
         per_session: dict[str, int] = {}
         for hit in hits:
             if hit.score < self.cfg.min_score:
                 continue
             key = _normalize_memory_text(hit.text)
-            if key and key in seen_text:
+            # Дубликаты эпизодов убираем внутри одного сеанса: одинаковая
+            # формулировка в другой день может описывать новое событие.
+            # Факты без session дедуплицируем между собой.
+            session_key = hit.session or ("facts" if hit.source == "fact" else f"episode:{hit.id}")
+            dedupe_key = (session_key, key)
+            if key and dedupe_key in seen_text:
                 continue
-            # Пустая session встречается у старых/ручных записей: не считаем
-            # все такие записи одним огромным сеансом.
-            session_key = hit.session or f"{hit.source}:{hit.id}"
             if per_session.get(session_key, 0) >= max(1, self.cfg.max_per_session):
                 continue
             if key:
-                seen_text.add(key)
+                seen_text.add(dedupe_key)
             per_session[session_key] = per_session.get(session_key, 0) + 1
             selected.append(hit)
             if len(selected) >= top_k:
