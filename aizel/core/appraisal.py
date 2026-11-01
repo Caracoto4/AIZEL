@@ -64,7 +64,7 @@ _DIRECT_HOSTILITY = (
 
 def _has_phrase(text: str, phrases: tuple[str, ...]) -> bool:
     for phrase in phrases:
-        pattern = r"(?<!\\w)" + re.escape(phrase) + r"(?!\\w)"
+        pattern = r"(?<!\w)" + re.escape(phrase) + r"(?!\w)"
         if re.search(pattern, text):
             return True
     return False
