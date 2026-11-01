@@ -171,14 +171,25 @@ async def run_chat(cfg: AizelConfig) -> None:
             # как ты» по смыслу всплывает всё, что обсуждалось минут пять назад.
             mood_p = emotions.state.pleasure
             probe = memory.probe_text(history, user_text)
-            ctx.memories = memory.context_lines(probe, mood=mood_p, top_k=cfg.memory.top_k)
+            temporal_question = memory.is_temporal_query(user_text)
+            semantic_lines = memory.context_lines(
+                probe, mood=mood_p, top_k=3 if temporal_question else cfg.memory.top_k
+            )
+            if temporal_question:
+                # Вопрос «что было в прошлый раз?» требует хронологии конкретной
+                # беседы, а не только семантически похожих фрагментов.
+                previous = memory.previous_session_lines(limit=8)
+                ctx.memories = previous + semantic_lines
+            else:
+                ctx.memories = semantic_lines
             if ctx.memories:
                 log.info("вспомнила %d шт: %s", len(ctx.memories), ctx.memories[0][:60])
 
             # Реплика пишется ДО генерации: если процесс упадет или модель
             # зависнет, сказанное тобой не пропадет.
+            turn_ts = time.time()
             journal.write("user", user_text)
-            memory.remember_message("user", user_text)
+            memory.remember_message("user", user_text, ts=turn_ts)
 
             messages = ctx.build_messages(history, user_text)
             started = time.perf_counter()
@@ -206,7 +217,7 @@ async def run_chat(cfg: AizelConfig) -> None:
             # Эпизод — смысл обмена. Ответ не храним отдельно: он порождение
             # её состояния, а не событие в твоей жизни.
             memory.remember_turn(
-                user_text, answer, mood=mood_p, topic=user_text[:60]
+                user_text, answer, mood=mood_p, topic=user_text[:60], ts=turn_ts
             )
             turn_log.append(f"СОБЕСЕДНИК: {user_text}\nАЙЗЕЛЬ: {answer}")
 
