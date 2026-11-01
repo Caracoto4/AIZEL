@@ -417,7 +417,7 @@ def test_extractor_requires_exact_user_evidence():
             return SimpleNamespace(text='''[
                 {"text":"Пользователь живёт в Праге","importance":0.8,"slot":"город","evidence":"я живу в Праге"},
                 {"text":"Пользователь работает врачом","importance":0.8,"slot":"работа","evidence":"Айзель сказала, что ты врач"},
-                {"text":"Пользователь любит шахматы","importance":0.7,"slot":"","evidence":"я иногда играю в шахматы"}
+                {"text":"Пользователь любит шахматы","importance":0.7,"slot":"","evidence":"иногда играю в шахматы"}
             ]''')
 
     dialog = (
@@ -468,8 +468,11 @@ def test_dialoglog_preserves_all_unclosed_turns_until_session_end():
         journal.session_end()
         journal.write("user", "новый факт")
         journal.write("assistant", "ответ")
+        for index in range(10):
+            journal.write("user", f"дополнительная реплика {index}")
         pending = journal.resumable_all()
-        assert [row["text"] for row in pending] == ["новый факт", "ответ"]
+        assert len(pending) == 12
+        assert [row["text"] for row in pending[:2]] == ["новый факт", "ответ"]
         journal.session_end()
         assert journal.resumable_all() == []
 
