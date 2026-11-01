@@ -73,7 +73,7 @@ _CORE_PATTERNS: tuple[tuple[str, re.Pattern, bool], ...] = (
     # собственное имя как твоё.
     (
         "имя",
-        re.compile(r"(?:меня|мне)\s+(?:тоже\s+)?(?:зовут|звать)\s+([\w-]{2,20})", re.I),
+        re.compile(r"(?:меня\\s+(?:тоже\\s+)?(?:зовут|звать)|я)\\s+([А-ЯЁ][а-яё-]{1,19})", re.I),
         True,   # значение — имя, пишем его само по себе
     ),
     (
@@ -111,7 +111,7 @@ def quick_core(text: str) -> list[ExtractedFact]:
     Возвращает то же, что и `extract_facts`, но без прогона через модель:
     вызывается на каждую реплику и не создаёт очереди к GPU.
     """
-    if not text or len(text) > 300:
+    if not text:
         return []
     found: list[ExtractedFact] = []
     seen: set[str] = set()
