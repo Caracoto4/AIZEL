@@ -183,7 +183,7 @@ def _normalize_memory_text(text: str) -> str:
     import unicodedata
 
     normalized = unicodedata.normalize("NFKC", text).casefold()
-        return " ".join(re.findall(r"\w+", normalized, flags=re.UNICODE))
+    return " ".join(re.findall(r"\w+", normalized, flags=re.UNICODE))
 
 
 def _row_vec(row) -> np.ndarray:
