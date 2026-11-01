@@ -14,6 +14,7 @@ import shutil
 import sqlite3
 import unicodedata
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from ..core.config import ROOT
@@ -106,8 +107,8 @@ class Memory:
 
     # ---------------------------------------------------------------- запись
 
-    def remember_message(self, role: str, text: str) -> None:
-        self.store.add_message(role, text, session=self.session)
+    def remember_message(self, role: str, text: str, *, ts: float | None = None) -> None:
+        self.store.add_message(role, text, session=self.session, ts=ts)
 
     def remember_turn(
         self,
@@ -117,6 +118,7 @@ class Memory:
         mood: float = 0.0,
         importance: float | None = None,
         topic: str = "",
+        ts: float | None = None,
     ) -> int:
         """Один обмен репликами = один эпизод.
 
@@ -147,6 +149,7 @@ class Memory:
             mood=mood,
             topic=topic or text[:60],
             session=self.session,
+            ts=ts,
         )
 
     def remember_fact(self, text: str, importance: float = 0.6) -> int:
@@ -270,6 +273,29 @@ class Memory:
         if hits:
             self.store.touch_recall([h.id for h in hits if h.source == "episode"])
         return hits
+
+    @staticmethod
+    def is_temporal_query(query: str) -> bool:
+        """Распознаёт вопросы о прошлых беседах, а не обычный семантический поиск."""
+        return bool(re.search(
+            r"в прошл(?:ый|ую) раз|прошл(?:ая|ую) бесед|последн(?:ий|юю) разговор|"
+            r"на ч[её]м мы остановил|о ч[её]м мы говорили|что мы обсуждали|"
+            r"что было в прошл|когда мы обсуждали",
+            query,
+            re.IGNORECASE,
+        ))
+
+    def previous_session_lines(self, limit: int = 8) -> list[str]:
+        """Возвращает недавнюю предыдущую беседу по времени, а не по сходству слов."""
+        rows = self.store.latest_session_episodes(
+            exclude_session=self.session, limit=limit
+        )
+        out: list[str] = []
+        for row in rows:
+            stamp = datetime.fromtimestamp(float(row["ts"])).astimezone()
+            label = stamp.strftime("%d.%m.%Y %H:%M")
+            out.append(f"предыдущая беседа · {label} (местное время): {row['text']}")
+        return out
 
     def context_lines(self, query: str, *, mood: float = 0.0, top_k: int = 6) -> list[str]:
         """Готовые строки для системного блока."""
