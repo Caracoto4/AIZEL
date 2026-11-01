@@ -23,6 +23,7 @@ from ..body.boot import ContextBuilder, Soul
 from ..core.brain import Brain, BrainUnavailable
 from ..core.config import DATA_DIR, AizelConfig
 from ..core.emotions import Emotions
+from ..core.drives import DriveState
 from ..core.appraisal import appraise_user_message
 from ..core.personality import Personality
 from ..memory.dialoglog import DialogLog
@@ -53,8 +54,9 @@ async def run_chat(cfg: AizelConfig) -> None:
         else soul.to_personality()
     )
     emotions = Emotions.load(EMOTIONS_PATH)
+    drives = DriveState.load(DATA_DIR / "drives.json")
 
-    ctx = ContextBuilder(soul, personality, emotions)
+    ctx = ContextBuilder(soul, personality, emotions, drives=drives)
     journal = DialogLog(DIALOG_DIR)
     memory = Memory(DATA_DIR, force_lexical=cfg.memory.force_lexical)
 
@@ -192,6 +194,7 @@ async def run_chat(cfg: AizelConfig) -> None:
             journal.write("user", user_text)
             memory.remember_message("user", user_text, ts=turn_ts)
 
+            drives.observe(user_text, has_history=bool(history), personality=personality)
             messages = ctx.build_messages(history, user_text)
             started = time.perf_counter()
             print(f"\n  {soul.name}: ", end="", flush=True)
@@ -268,5 +271,6 @@ async def run_chat(cfg: AizelConfig) -> None:
 
         emotions.save(EMOTIONS_PATH)
         personality.save(PERSONALITY_PATH)
+        drives.save(DATA_DIR / "drives.json")
         memory.close()
 
