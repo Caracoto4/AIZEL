@@ -17,6 +17,10 @@ from aizel.core.embeddings import Embedder
 from aizel.memory.facade import Memory, _guess_importance
 from aizel.memory.retrieval import Retriever, RetrievalSettings, _human_age
 from aizel.memory.store import MemoryStore
+from aizel.memory.semantic import quick_core
+from aizel.body.boot import ContextBuilder, Soul
+from aizel.core.personality import Personality
+from aizel.core.emotions import Emotions
 
 
 def _tmp_db(tmp: Path) -> Path:
@@ -212,6 +216,89 @@ def test_context_lines_are_labeled():
         assert lines, "пустой контекст"
         assert "(" in lines[0] and ")" in lines[0], lines[0]
         mem.close()
+
+
+# ---------------------------------------------------------- regressions D1-D4
+
+
+def test_quick_core_extracts_name_from_long_message():
+    text = (
+        "Привет! Давно хотел рассказать о проекте. "
+        "Я Даниил, создал этот проект и сейчас работаю над ним. "
+        + "Мне нравится обсуждать технологии. " * 20
+    )
+    facts = quick_core(text)
+    names = [fact.text for fact in facts if fact.slot == "имя"]
+    assert names == ["Даниил"], names
+
+
+def test_quick_core_does_not_capture_aizel_as_user_name():
+    facts = quick_core("А тебя зовут Айзель, верно?")
+    assert not [fact for fact in facts if fact.slot == "имя"], facts
+
+
+def test_bare_question_is_not_saved_as_episode():
+    with _Tmp() as tmp:
+        mem = Memory(tmp, force_lexical=True)
+        added = mem.remember_turn("Как меня зовут?", "Не знаю.")
+        assert added == 0
+        assert mem.store.stats()["episodes"] == 0
+        mem.close()
+
+
+def test_personal_statement_inside_question_is_saved():
+    with _Tmp() as tmp:
+        mem = Memory(tmp, force_lexical=True)
+        added = mem.remember_turn("Я люблю звёзды, знаешь?", "Да, помню.")
+        assert added > 0
+        assert mem.store.stats()["episodes"] == 1
+        mem.close()
+
+
+def test_boot_prompt_distinguishes_empty_memory_and_existing_episodes():
+    builder = ContextBuilder(Soul(), Personality(), Emotions())
+    empty_prompt = builder.system_prompt()
+    assert "Не угадывай его имя" in empty_prompt
+    builder.memories = ["вчера обсуждали астрономию"]
+    episode_prompt = builder.system_prompt()
+    assert "есть воспоминания из прошлых разговоров" in episode_prompt
+    assert "вчера обсуждали астрономию" in episode_prompt
+
+
+def test_retrieval_deduplicates_and_limits_each_session():
+    with _Tmp() as tmp:
+        store = MemoryStore(_tmp_db(tmp))
+        query = "обсуждали проект и планы на выходные"
+        vec = Embedder.lexical_fallback(query)
+        # Точный дубль с другой пунктуацией удаляется после нормализации.
+        store.add_episode(query, vec, importance=0.9, session="session-a")
+        store.add_episode(query + "!!!", vec, importance=0.8, session="session-b")
+        # Один сеанс не может занять больше двух мест в контексте.
+        for suffix in ("первый вариант", "второй вариант", "третий вариант"):
+            store.add_episode(
+                query + " " + suffix,
+                vec,
+                importance=0.7,
+                session="session-a",
+            )
+        for suffix in ("четвёртый вариант", "пятый вариант", "шестой вариант"):
+            store.add_episode(
+                query + " " + suffix,
+                vec,
+                importance=0.6,
+                session="session-b",
+            )
+        retriever = Retriever(
+            store,
+            RetrievalSettings(min_similarity=0.0, min_score=0.0, top_k=10),
+        )
+        hits = retriever.search(vec, top_k=10)
+        assert len(hits) <= 4, [(h.session, h.text) for h in hits]
+        assert sum(h.session == "session-a" for h in hits) <= 2
+        assert sum(h.session == "session-b" for h in hits) <= 2
+        normalized = [h.text.casefold().rstrip("!") for h in hits]
+        assert len(normalized) == len(set(normalized)), normalized
+        store.close()
 
 
 if __name__ == "__main__":
