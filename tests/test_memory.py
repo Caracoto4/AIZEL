@@ -232,6 +232,13 @@ def test_quick_core_extracts_name_from_long_message():
     assert names == ["Даниил"], names
 
 
+def test_quick_core_supports_common_name_introductions():
+    for phrase in ("Я Даниил", "Это Даниил", "Зовут меня Даниил", "Меня зовут Даниил"):
+        facts = quick_core(phrase)
+        names = [fact.text for fact in facts if fact.slot == "имя"]
+        assert names == ["Даниил"], (phrase, names)
+
+
 def test_quick_core_does_not_capture_aizel_as_user_name():
     facts = quick_core("А тебя зовут Айзель, верно?")
     assert not [fact for fact in facts if fact.slot == "имя"], facts
