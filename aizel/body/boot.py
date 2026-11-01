@@ -114,8 +114,8 @@ class ContextBuilder:
             about.insert(0, f"Твоего собеседника зовут {s.about_you['name']}.")
         if about:
             blocks.append(
-                "Подтверждённые сведения о собеседнике (это известные факты, не догадки):\\n"
-                + "\\n".join(f"- {a}" for a in about)
+                "Подтверждённые сведения о собеседнике (это известные факты, не догадки):\n"
+                + "\n".join(f"- {a}" for a in about)
             )
         elif self.memories:
             blocks.append(
