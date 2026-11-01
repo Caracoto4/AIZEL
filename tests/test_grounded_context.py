@@ -49,5 +49,5 @@ if __name__ == "__main__":
             except AssertionError as exc:
                 failed += 1
                 print(f"  FAIL {name}: {exc}")
-    print("\\n", "ВСЁ ЗЕЛЁНОЕ" if not failed else f"провалено: {failed}")
+    print("\n", "ВСЁ ЗЕЛЁНОЕ" if not failed else f"провалено: {failed}")
     sys.exit(1 if failed else 0)
