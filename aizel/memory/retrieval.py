@@ -143,16 +143,21 @@ class Retriever:
             key = _normalize_memory_text(hit.text)
             # Дубликаты эпизодов убираем внутри одного сеанса: одинаковая
             # формулировка в другой день может описывать новое событие.
-            # Факты без session дедуплицируем между собой.
-            session_key = hit.session or ("facts" if hit.source == "fact" else f"episode:{hit.id}")
-            dedupe_key = (session_key, key)
+            # Факты дедуплицируем глобально, но не ограничиваем их числом на сеанс.
+            if hit.source == "fact":
+                session_key = f"fact:{hit.id}"
+                dedupe_key = ("facts", key)
+            else:
+                session_key = hit.session or f"episode:{hit.id}"
+                dedupe_key = (session_key, key)
+                if per_session.get(session_key, 0) >= max(1, self.cfg.max_per_session):
+                    continue
             if key and dedupe_key in seen_text:
-                continue
-            if per_session.get(session_key, 0) >= max(1, self.cfg.max_per_session):
                 continue
             if key:
                 seen_text.add(dedupe_key)
-            per_session[session_key] = per_session.get(session_key, 0) + 1
+            if hit.source == "episode":
+                per_session[session_key] = per_session.get(session_key, 0) + 1
             selected.append(hit)
             if len(selected) >= top_k:
                 break
