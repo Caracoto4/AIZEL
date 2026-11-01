@@ -17,6 +17,7 @@ import yaml
 
 from ..core.emotions import Emotions
 from ..core.personality import Personality
+from ..core.drives import DriveState
 
 
 @dataclass
@@ -62,10 +63,11 @@ class Soul:
 class ContextBuilder:
     """Собирает system-промпт и список сообщений для Brain."""
 
-    def __init__(self, soul: Soul, personality: Personality, emotions: Emotions):
+    def __init__(self, soul: Soul, personality: Personality, emotions: Emotions, drives: DriveState | None = None):
         self.soul = soul
         self.personality = personality
         self.emotions = emotions
+        self.drives = drives or DriveState()
         # Сюда Фаза 2 подложит извлечённые воспоминания.
         self.memories: list[str] = []
         # Сюда Фаза 2 подложит ядро памяти (устойчивые факты о пользователе).
@@ -117,7 +119,10 @@ class ContextBuilder:
         if tone:
             blocks.append(f"Это слышно в речи: {tone}.")
 
-        # 4. Ядро памяти о пользователе.
+        # 4. Побуждения: мягкий приоритет следующего действия.
+        blocks.append(self.drives.directive(self.personality))
+
+        # 5. Ядро памяти о пользователе.
         about = [f for f in (s.about_you or {}).get("facts", []) if f]
         about += self.core_memory
         if s.about_you.get("name"):
@@ -140,7 +145,7 @@ class ContextBuilder:
                 "Знакомься естественно, без анкеты."
             )
 
-        # 5. Извлечённые воспоминания (Фаза 2).
+        # 6. Извлечённые воспоминания (Фаза 2).
         if self.memories:
             blocks.append(
                 "Всплывают в голове воспоминания:\n"
@@ -153,7 +158,7 @@ class ContextBuilder:
                 + "\n".join(f"- {m}" for m in self.memories)
             )
 
-        # 6. Голос и границы.
+        # 7. Голос и границы.
         register = (s.voice or {}).get("register", "").strip()
         if register:
             blocks.append(register)
@@ -161,13 +166,13 @@ class ContextBuilder:
         if boundaries:
             blocks.append("Твои границы (это твоё «не хочу», а не запрет):\n" + "\n".join(f"- {b}" for b in boundaries))
 
-        # 7. Её собственные интересы — топливо для инициативы.
+        # 8. Её собственные интересы — топливо для инициативы.
         if s.curiosities:
             blocks.append(
                 "Тебе самой интересно: " + "; ".join(s.curiosities) + "."
             )
 
-        # 8. Её автопортрет — то, что она накопила о себе сама (Фаза 4).
+        # 9. Её автопортрет — то, что она накопила о себе сама (Фаза 4).
         if self.personality.self_portrait:
             blocks.append("Что ты поняла о себе:\n" + self.personality.self_portrait)
 
