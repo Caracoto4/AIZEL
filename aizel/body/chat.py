@@ -149,6 +149,11 @@ async def run_chat(cfg: AizelConfig) -> None:
 
             if user_text.lower() in CMD_FORGET:
                 backup = memory.forget_all(DIALOG_DIR)
+                # Не даём текущей истории и очереди усвоения восстановить
+                # только что удалённые сведения при следующем ответе или /exit.
+                history.clear()
+                turn_log.clear()
+                journal.session_end()
                 ctx.core_memory = []
                 ctx.memories = []
                 print(f"\n  стёрла всё. копия на всякий случай: {backup}")
