@@ -24,6 +24,7 @@ from ..core.brain import Brain, BrainUnavailable
 from ..core.config import DATA_DIR, AizelConfig
 from ..core.emotions import Emotions
 from ..core.drives import DriveState
+from ..core.preferences import ConversationPreferences
 from ..core.appraisal import appraise_user_message
 from ..core.personality import Personality
 from ..memory.dialoglog import DialogLog
@@ -55,8 +56,9 @@ async def run_chat(cfg: AizelConfig) -> None:
     )
     emotions = Emotions.load(EMOTIONS_PATH)
     drives = DriveState.load(DATA_DIR / "drives.json")
+    preferences = ConversationPreferences.load(DATA_DIR / "conversation_preferences.json")
 
-    ctx = ContextBuilder(soul, personality, emotions, drives=drives)
+    ctx = ContextBuilder(soul, personality, emotions, drives=drives, preferences=preferences)
     journal = DialogLog(DIALOG_DIR)
     memory = Memory(DATA_DIR, force_lexical=cfg.memory.force_lexical)
 
@@ -162,6 +164,10 @@ async def run_chat(cfg: AizelConfig) -> None:
                 print(f"\n  стёрла всё. копия на всякий случай: {backup}")
                 print("      если передумаешь — верни файлы из этой папки.\n")
                 continue
+
+            # Явные предпочтения общения сохраняются детерминированно, без догадок модели.
+            if preferences.observe_feedback(user_text):
+                preferences.save(DATA_DIR / "conversation_preferences.json")
 
             # Ядро выхватываем ДО генерации: сказав «меня зовут Даниил», ты
             # должен получить «приятно познакомиться, Даниил» в этом же ответе,
