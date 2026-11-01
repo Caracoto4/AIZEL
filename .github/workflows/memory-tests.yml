@@ -24,3 +24,5 @@ jobs:
         run: python tests/test_appraisal.py
       - name: Run drive regression tests
         run: python tests/test_drives.py
+      - name: Run grounded dialogue tests
+        run: python tests/test_grounded_context.py
