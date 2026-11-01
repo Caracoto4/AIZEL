@@ -17,7 +17,7 @@ from aizel.core.embeddings import Embedder
 from aizel.memory.facade import Memory, _guess_importance
 from aizel.memory.retrieval import Retriever, RetrievalSettings, _human_age
 from aizel.memory.store import MemoryStore
-from aizel.memory.semantic import quick_core
+from aizel.memory.semantic import ExtractedFact, EXTRACT_SYSTEM, quick_core
 from aizel.body.boot import ContextBuilder, Soul
 from aizel.core.personality import Personality
 from aizel.core.emotions import Emotions
@@ -357,6 +357,53 @@ def test_permanent_facts_are_not_limited_by_episode_session_cap():
         assert len(hits) == 4, [hit.text for hit in hits]
         assert all(hit.source == "fact" for hit in hits)
         store.close()
+
+
+def test_fact_batch_deduplicates_normalized_text():
+    with _Tmp() as tmp:
+        mem = Memory(tmp, force_lexical=True)
+        added = mem.remember_facts([
+            ("Пользователь любит астрономию.", 0.8),
+            (" пользователь   ЛЮБИТ астрономию! ", 0.9),
+            ("Пользователь любит программирование", 0.7),
+        ])
+        assert added == 2
+        assert mem.remember_fact("ПОЛЬЗОВАТЕЛЬ ЛЮБИТ АСТРОНОМИЮ") == 0
+        assert len(mem.store.all_facts()) == 2
+        mem.close()
+
+
+def test_apply_facts_rejects_unknown_core_slots():
+    with _Tmp() as tmp:
+        mem = Memory(tmp, force_lexical=True)
+        result = mem.apply_facts([
+            ExtractedFact("Пользователь любит астрономию", 0.8, "личность")
+        ])
+        assert result == {"core": 0, "facts": 1}, result
+        assert mem.store.all_core() == []
+        assert len(mem.store.all_facts()) == 1
+        mem.close()
+
+
+def test_family_core_slot_keeps_multiple_people_without_duplicates():
+    with _Tmp() as tmp:
+        mem = Memory(tmp, force_lexical=True)
+        result = mem.apply_facts([
+            ExtractedFact("У пользователя есть брат", 0.8, "семья"),
+            ExtractedFact("У пользователя есть сестра", 0.8, "семья"),
+            ExtractedFact("У пользователя есть брат!", 0.9, "семья"),
+        ])
+        assert result == {"core": 2, "facts": 0}, result
+        family = mem.store.get_core("семья")
+        assert len(family) == 2, family
+        assert any("брат" in item.lower() for item in family)
+        assert any("сестра" in item.lower() for item in family)
+        mem.close()
+
+
+def test_extractor_prompt_uses_only_interlocutor_statements():
+    assert "ТОЛЬКО из реплик СОБЕСЕДНИКА" in EXTRACT_SYSTEM
+    assert "утверждения Айзель о собеседнике" in EXTRACT_SYSTEM
 
 
 if __name__ == "__main__":
