@@ -89,9 +89,7 @@ async def run_chat(cfg: AizelConfig) -> None:
         ctx.core_memory = memory.store.all_core()
 
         # Приветствие она генерирует сама, из своего состояния — не захардкоженное.
-        greet_msgs = ctx.build_messages(
-            history, "*(только что проснулась после долгого сна)*"
-        )
+        greet_msgs = ctx.build_greeting_messages(history)
         try:
             first = await brain.chat(greet_msgs, max_tokens=160)
             greeting = first.text or "…"
