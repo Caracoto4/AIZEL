@@ -163,7 +163,7 @@ def _tokens(text: str) -> list[str]:
     import unicodedata
 
     normalized = unicodedata.normalize("NFKC", text).casefold()
-    return re.findall(r"\\w+", normalized, flags=re.UNICODE)
+    return re.findall(r"\w+", normalized, flags=re.UNICODE)
 
 
 def _evidence_is_grounded(evidence: str, dialog_text: str) -> bool:
@@ -171,7 +171,7 @@ def _evidence_is_grounded(evidence: str, dialog_text: str) -> bool:
     quoted = _tokens(evidence)
     if len(quoted) < 2:
         return False
-    for statement in re.findall(r"^СОБЕСЕДНИК:\\s*(.*)$", dialog_text, flags=re.M):
+    for statement in re.findall(r"^СОБЕСЕДНИК:\s*(.*)$", dialog_text, flags=re.M):
         words = _tokens(statement)
         width = len(quoted)
         if any(words[i:i + width] == quoted for i in range(len(words) - width + 1)):
