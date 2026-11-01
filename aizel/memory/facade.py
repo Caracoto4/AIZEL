@@ -117,6 +117,12 @@ class Memory:
         text = prepare(user_text)
         if not text:
             return 0
+        # Не превращаем голые вопросы («как меня зовут?») в воспоминания.
+        # Вопрос с личным утверждением («я люблю звёзды, знаешь?») сохраняем.
+        if text.rstrip().endswith("?") and not re.search(
+            r"\\b(?:я|мне|мой|моя|моё|мои|меня|у меня)\\b", text, re.I
+        ):
+            return 0
         if importance is None:
             importance = _guess_importance(text)
         vec = self._encode_docs([text])[0]
